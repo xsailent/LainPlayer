@@ -1,0 +1,5 @@
+pytermgui
+httpx
+beautifulsoup4
+yt-dlp
+python-mpv
