@@ -7,6 +7,6 @@ TUI плеер на Python, загружающий треки с сайта lain
 1. Вход в свой личный аккаунт lainlife.org
 2. Загрузка и воспроизведене треков из списка
 
-![[lainplayer.jpg]]
+![lainplayer screenshot](lainplayer.jpg)
 
 Телеграм Канал lainlife: https://t.me/lainlifesoc
