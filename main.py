@@ -18,9 +18,6 @@ music_adr = "https://lainlife.org/search"
 filename = "lainplayer.mp3"
 save_path = os.path.join("/tmp", filename)
 
-#login = ui.start_player().email_field.value
-#password = ui.start_player().password_field.value
-
 def login(email, password):
     global login_email, login_password
     login_email = email
@@ -102,7 +99,7 @@ def load_music():
             "hash": (None, hash_value)
         }
 
-            # юзер агент(хз зачем, мб потом уберу)
+        # юзер агент(хз зачем, мб потом уберу)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
@@ -149,23 +146,12 @@ def load_music():
                         audio_embed = track.find('div', class_="audioEmbed")
                     
                         if audio_embed:
-                            #track_name = audio_embed.get('data-name')
-                            #track_url = audio_embed.get('data-url')
-                        
-                            #tracks_urls[track_name] = track_url
-                            #ui.music_list.append(ui.ptg.Button(track_name, lambda: download_and_play_with_mpv(track_urls[track_name])))
-                            #download_and_play_with_mpv(tracks_urls[track_name])
-
                             name = audio_embed.get('data-name')
                             url = audio_embed.get('data-url')
 
                             track_url = url
                                 
                             if name and url and ui.music_window:
-                                #button = ptg.Button(name, lambda _: download_and_play(track_url))
-                                #ui.music_window._widgets.append(button)
-                                #ui.manager.compositor.draw()
-                                #ui.manager.update() 
                                 add_track_to_list(name, track_url)
                                 time.sleep(0.05)
 
