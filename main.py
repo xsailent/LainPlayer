@@ -6,8 +6,11 @@ import mpv
 import subprocess
 import yt_dlp
 import ui
-import pytermgui as ptg
+from ui import LainPlayerUI
 import threading
+import asyncio
+from textual import work
+from textual.widgets import Label, ListItem, ListView
 
 # адрес который будет задействован
 address = 'https://lainlife.org'
@@ -18,14 +21,24 @@ music_adr = "https://lainlife.org/search"
 filename = "lainplayer.mp3"
 save_path = os.path.join("/tmp", filename)
 
-def login(email, password):
-    global login_email, login_password
-    login_email = email
-    login_password = password
-    main()  # Запускаем основную функцию
+def label_list_box(item, app):
+    url = item.track_url
 
-def download_and_play(mpd_url):
+    music_thread = threading.Thread(
+        target=download_and_play,
+        args=(url, item.app), 
+        daemon=True
+    )
+    music_thread.start()
+
+def download_and_play(mpd_url, app):
     output_path = '/tmp/lainplayer.mp3'
+
+    app.call_from_thread(
+        app.notify, 
+        "Запрос отправлен в yt-dlp. Начинаю скачивание аудио...",
+        title="Загрузка"
+    )
 
     # 1. Скачивание и конвертация в MP3
     ydl_opts = {
@@ -37,10 +50,10 @@ def download_and_play(mpd_url):
             'preferredquality': '192',
         }],
         'overwrites': True,
-        'quiet': True,  # Скрыть лишний вывод yt-dlp в консоли
+        'quiet': True,
     }
 
-    print("Скачивание аудио...")
+    #print("Скачивание аудио...")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([mpd_url])
 
@@ -49,38 +62,27 @@ def download_and_play(mpd_url):
         return
 
     # 2. Воспроизведение через mpv
-    print(f"Воспроизведение: {output_path}")
+    app.call_from_thread(
+        app.notify,
+        "Файл успешно сконвертирован. Передаю поток в mpv.",
+        title="Воспроизведение",
+        severity="info"
+    )
     player = mpv.MPV(video=False, ytdl=False)  # Отключаем видео и встроенный ytdl
     player.play(output_path)
 
     # Ожидаем окончания воспроизведения
     player.wait_for_playback()
 
-def add_track_to_list(name, track_url):
-    """Добавляет трек в список"""
-    global track_container
-    
-    if track_container is None:
-        return
-    
-    button = ptg.Button(
-        f"🎵 {name}", 
-        lambda _: threading.Thread(target=download_and_play, args=(track_url,), daemon=True).start()
-    )
-    
-    # Добавляем в контейнер
-    track_container._widgets.append(button)
-    
-    # Обновляем максимальную прокрутку
-    track_container._max_scroll = max(0, len(track_container._widgets) - track_container.height + 1)
-
-def load_music():
-    global login_email, login_password
+# Декоратор @work превращает функцию в фоновый процесс Textual
+async def load_music(app):
+    login_email = ui.login_email
+    login_password = ui.login_password
 
     # запуск клиента httpx
-    with httpx.Client(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         # делаем зпапрос на страницу авторизации
-        response = client.get(LOGIN_PAGE_URL)
+        response = await client.get(LOGIN_PAGE_URL)
         soup = BeautifulSoup(response.text, "html.parser")
     
         # ищем скрытое поле hash
@@ -105,7 +107,7 @@ def load_music():
         }
     
         # пост запрос на вход в акк
-        login_response = client.post(LOGIN_ACTION_URL, files=form_fields, headers=headers)
+        login_response = await client.post(LOGIN_ACTION_URL, files=form_fields, headers=headers)
 
         params = {
             "section": "audios",
@@ -116,20 +118,13 @@ def load_music():
         # добавляем словарь чтобы удобно обращаться к адресу для скачивания файла по названию 
         tracks_urls = {}
 
-        if track_container is not None:
-            track_container.bind(ptg.keys.UP, lambda *_: track_container.scroll(-1))
-            track_container.bind(ptg.keys.DOWN, lambda *_: track_container.scroll(1))
-            track_container.bind(ptg.keys.PAGE_UP, lambda *_: track_container.scroll(-10))
-            track_container.bind(ptg.keys.PAGE_DOWN, lambda *_: track_container.scroll(10))
-
         while True:
             # запрос на страницу с музыкой и вывод статуса
-            music_response = client.get(music_adr, params=params)
+            music_response = await client.get(music_adr, params=params)
             music_soup = BeautifulSoup(music_response.text, "html.parser")
 
             # создаем проверку есть ли div поиска на сайте
             target_div = None
-            #target_div = soup.select_one('#search_page .page_wrap_content_main')
             parent = music_soup.find('div', id='search_page')
         
             if parent:
@@ -137,7 +132,6 @@ def load_music():
                 target_div = parent.find('div', class_='page_wrap_content_main')
         
                 if target_div:
-                    #print(target_div.prettify())
                     audio_tracks = target_div.find_all('div', class_='scroll_node')
                 
                     # создаем список треков и выводим
@@ -151,13 +145,26 @@ def load_music():
 
                             track_url = url
                                 
-                            if name and url and ui.music_window:
-                                add_track_to_list(name, track_url)
-                                time.sleep(0.05)
+                            list_view = app.query_one("#my_list", ListView)
+
+                            item = ListItem(Label(name))
+
+                            # Сохраняем имя и ссылку на аудио прямо внутри объекта!
+                            item.track_name = name      
+                            item.track_url = track_url  
+
+                            # Добавляем в список
+                            list_view.append(item)
 
             # увелечиваем значение p чтобы загрузить новые треки и делаем паузу чтобы сервер не перетруждался
             params["p"] += 1
-            time.sleep(1)
+            await asyncio.sleep(1)
+
+app = LainPlayerUI(
+    action_function=label_list_box,
+    setup_worker=load_music
+)
 
 if __name__ == "__main__":
-    ui.start_player()
+    #ui.start_player()
+    app.run()

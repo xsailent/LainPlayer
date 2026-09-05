@@ -1,82 +1,67 @@
-import pytermgui as ptg
-import os
-import threading
+from textual import on
+from textual.app import App, ComposeResult
+from textual.screen import Screen
+from textual.widgets import Button, Footer, Input, Label, ListItem, ListView
+from textual.widgets import ListView  # Убедимся, что импорт есть
 
-columns, lines = os.get_terminal_size()
+login_email = ""
+login_password = ""
 
-manager = None
-music_window = None
-login_window = None
+class LoginScreen(Screen):
+    def compose(self) -> ComposeResult:
+        yield Label("Авторизация LainPlayer", id="title")
+        yield Input(placeholder="Email", id="email_input")
+        yield Input(placeholder="Пароль", password=True, id="password_input")
+        yield Button("Войти", variant="success", id="login_btn")
 
-def start_player():
-    global manager, music_window, login_window
+    @on(Button.Pressed, "#login_btn")
+    def do_login(self) -> None:
+        email = self.query_one("#email_input", Input).value
+        password = self.query_one("#password_input", Input).value
+        
+        self.app.save_credentials(email, password)
+        self.app.switch_screen(MainScreen())
 
-    with ptg.WindowManager() as mgr:
-        manager = mgr
-
-        #music_list.width = columns
-        #music_list.height = lines
-
-        #music_list.pos = (0, 0)
+class MainScreen(Screen):
+    def compose(self) -> ComposeResult:
+        yield ListView(id="my_list")
+        yield Footer()
     
-        email_field = ptg.InputField("Input here", prompt="Email: ")
-        password_field = ptg.InputField("Input here", prompt="Password: ")
+    def on_mount(self) -> None:
+        """Запускаем загрузку музыки после монтирования экрана"""
+        if self.app.setup_worker:
+            self.app.run_worker(self.app.setup_worker(self))
+    
+    def add_track(self, name: str, url: str) -> None:
+        """Безопасно добавляет трек в список на этом экране"""
+        try:
+            list_view = self.query_one("#my_list", ListView)
+            
+            item = ListItem(Label(name))
+            
+            item.track_name = name
+            item.track_url = url
+            
+            list_view.append(item)
+            
+        except Exception as e:
+            self.app.notify(f"Ошибка добавления трека: {e}", severity="error")
 
-        login_data = (
-            ptg.Window(
-                "",
-                email_field,
-                password_field,
-                "",
-                ["Submit", lambda *_: do_login(email_field.value, password_field.value)],
-                width=60,
-                box="DOUBLE",
-            )
-            .set_title("[210 bold]LainPlayer login manager")
-            .center()
-        )
+class LainPlayerUI(App):
+    def __init__(self, action_function=None, setup_worker=None):
+        super().__init__()
+        self.action_function = action_function
+        self.setup_worker = setup_worker
     
-        manager.add(login_data)
-        manager.run()
-
-def do_login(email, password):
-    global manager, login_window, music_window
+    def on_mount(self) -> None:
+        self.push_screen(LoginScreen())
     
-    import main
-    main.login_email = email
-    main.login_password = password
+    def save_credentials(self, email, password):
+        global login_email, login_password
+        login_email = email
+        login_password = password
     
-    # Убираем окно логина
-    if login_window and manager:
-        manager.remove(login_window)
-
-    track_container = ptg.Container(
-        box="EMPTY_VERTICAL",
-        height=lines - 6,
-    )
-
-    music_window = ptg.Window(
-        "",
-        ptg.Label("[bold]🎵 Music List[/bold]"),
-        "",
-        track_container,
-        "",
-        ptg.Container(
-            ptg.Button("▲", lambda *_: track_container.scroll(-5)),  # Вверх на 5
-            ptg.Button("▼", lambda *_: track_container.scroll(5)),   # Вниз на 5
-            ptg.Button("⇑", lambda *_: track_container.scroll_end(0)),   # В начало
-            ptg.Button("⇓", lambda *_: track_container.scroll_end(-1)),  # В конец
-            box="EMPTY_HORIZONTAL",
-        ),
-        width=columns,
-        height=lines,
-        box="DOUBLE",
-    ).set_title("LainPlayer")
-    
-    # Сохраняем контейнер в глобальной переменной для доступа из main
-    main.track_container = track_container
-    
-    manager.add(music_window)
-    
-    # Запускаем загрузку в потоке
-    threading.Thread(target=main.load_music, daemon=True).start()
+    @on(ListView.Selected, "#my_list")
+    def on_select(self, event: ListView.Selected) -> None:
+        if self.action_function:
+            self.action_function(event.item, self)
