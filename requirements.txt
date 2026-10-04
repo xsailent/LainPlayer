@@ -1,4 +1,4 @@
-pytermgui
+textual
 httpx
 beautifulsoup4
 yt-dlp
